@@ -1,7 +1,7 @@
 {
   "name": "data-viewer",
-  "displayName": "数据表查看器",
-  "description": "高性能 CSV/Excel 数据表查看器，支持虚拟滚动、筛选、排序",
+  "displayName": "Data Viewer",
+  "description": "High-performance CSV/Excel data viewer with virtual scrolling, filtering, sorting and editing",
   "version": "0.1.0",
   "publisher": "ixxxxoooo",
   "license": "MIT",
@@ -24,7 +24,8 @@
     "viewer",
     "table",
     "grid",
-    "数据表"
+    "spreadsheet",
+    "editor"
   ],
   "engines": {
     "vscode": "^1.85.0"
@@ -40,7 +41,7 @@
     "customEditors": [
       {
         "viewType": "dataViewer.csvEditor",
-        "displayName": "数据表查看器",
+        "displayName": "Data Viewer",
         "selector": [
           {
             "filenamePattern": "*.csv"
@@ -53,7 +54,7 @@
       },
       {
         "viewType": "dataViewer.excelEditor",
-        "displayName": "数据表查看器",
+        "displayName": "Data Viewer",
         "selector": [
           {
             "filenamePattern": "*.xlsx"

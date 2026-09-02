@@ -16,7 +16,58 @@ declare function acquireVsCodeApi(): { postMessage(msg: unknown): void; getState
 const vscode = acquireVsCodeApi();
 
 interface SheetData { name: string; headers: string[]; rows: Record<string, unknown>[] }
-interface DataPayload { fileName: string; sheets: SheetData[]; parseTimeMs: number; fileSizeBytes: number }
+interface DataPayload { fileName: string; sheets: SheetData[]; parseTimeMs: number; fileSizeBytes: number; lang?: string }
+
+// ===================== i18n =====================
+
+const I18N: Record<string, Record<string, string>> = {
+  en: {
+    search: 'Search all columns...',
+    searchFilter: 'Search...',
+    selectAll: 'Select All',
+    apply: 'Apply',
+    cancel: 'Cancel',
+    clear: 'Clear',
+    filter: 'Filter',
+    empty: '(empty)',
+    showingN: 'Showing first {limit} of {total}',
+    totalRows: '{n} rows',
+    filteredRows: '{n} after filter',
+    loading: 'Loading...',
+    parseFailed: 'Failed to parse file',
+    editCell: 'Edit Cell',
+  },
+  zh: {
+    search: '搜索全部列...',
+    searchFilter: '搜索...',
+    selectAll: '全选',
+    apply: '应用',
+    cancel: '取消',
+    clear: '清除',
+    filter: '筛选',
+    empty: '(空)',
+    showingN: '显示前 {limit} 个（共 {total} 个）',
+    totalRows: '共 {n} 行',
+    filteredRows: '筛选后 {n} 行',
+    loading: '正在加载...',
+    parseFailed: '文件解析失败',
+    editCell: '编辑单元格',
+  },
+};
+
+let currentLang = 'en';
+
+function t(key: string, vars?: Record<string, string | number>): string {
+  let s = I18N[currentLang]?.[key] ?? I18N.en[key] ?? key;
+  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
+  return s;
+}
+
+function detectLang(): string {
+  const html = document.documentElement.lang?.toLowerCase() || '';
+  if (html.startsWith('zh')) return 'zh';
+  return 'en';
+}
 
 let gridApi: GridApi | null = null;
 let allSheets: SheetData[] = [];
@@ -24,7 +75,7 @@ let currentSheetIndex = 0;
 let dataPayloadCache: DataPayload | null = null;
 let _suppressEdit = false;
 
-// ===================== 外部筛选系统 =====================
+// ===================== External Filter =====================
 
 const columnFilters = new Map<string, Set<string>>();
 
@@ -40,7 +91,7 @@ function doesExternalFilterPass(node: any): boolean {
   return true;
 }
 
-// ===================== 筛选弹窗 =====================
+// ===================== Filter Popup =====================
 
 let activePopup: { overlay: HTMLDivElement; popup: HTMLDivElement; field: string } | null = null;
 
@@ -73,14 +124,12 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
   popup.className = 'dv-fp';
   popup.addEventListener('mousedown', (e) => e.stopPropagation());
 
-  // 搜索框
   const search = document.createElement('input');
   search.type = 'text';
-  search.placeholder = '搜索...';
+  search.placeholder = t('searchFilter');
   search.className = 'dv-fp-search';
   popup.appendChild(search);
 
-  // 全选
   const allRow = document.createElement('div');
   allRow.className = 'dv-fp-row';
   const allCb = document.createElement('input');
@@ -89,12 +138,11 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
   allCb.className = 'dv-fp-cb';
   const allLbl = document.createElement('span');
   allLbl.className = 'dv-fp-lbl';
-  allLbl.textContent = '全选';
+  allLbl.textContent = t('selectAll');
   allRow.appendChild(allCb);
   allRow.appendChild(allLbl);
   popup.appendChild(allRow);
 
-  // 值列表
   const list = document.createElement('div');
   list.className = 'dv-fp-list';
   popup.appendChild(list);
@@ -125,7 +173,7 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
       });
       const lbl = document.createElement('span');
       lbl.className = 'dv-fp-lbl';
-      lbl.textContent = v || '(空)';
+      lbl.textContent = v || t('empty');
       if (!v) lbl.style.opacity = '0.5';
       row.appendChild(cb);
       row.appendChild(lbl);
@@ -135,7 +183,7 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
     if (vals.length > limit) {
       const n = document.createElement('div');
       n.className = 'dv-fp-note';
-      n.textContent = `显示前 ${limit} 个（共 ${vals.length} 个）`;
+      n.textContent = t('showingN', { limit, total: vals.length });
       list.appendChild(n);
     }
   }
@@ -170,10 +218,9 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
 
   renderList(sorted);
 
-  // 按钮行
   const btnRow = document.createElement('div');
   btnRow.className = 'dv-fp-btns';
-  btnRow.appendChild(makeBtn('应用', true, () => {
+  btnRow.appendChild(makeBtn(t('apply'), true, () => {
     if (staged.size === sorted.length) columnFilters.delete(field);
     else columnFilters.set(field, new Set(staged));
     gridApi?.onFilterChanged();
@@ -181,8 +228,8 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
     updateFilterIcons();
     updateStatus(allSheets[currentSheetIndex]);
   }));
-  btnRow.appendChild(makeBtn('取消', false, () => closeFilterPopup()));
-  btnRow.appendChild(makeBtn('清除', false, () => {
+  btnRow.appendChild(makeBtn(t('cancel'), false, () => closeFilterPopup()));
+  btnRow.appendChild(makeBtn(t('clear'), false, () => {
     columnFilters.delete(field);
     gridApi?.onFilterChanged();
     closeFilterPopup();
@@ -194,7 +241,6 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
   document.body.appendChild(overlay);
   document.body.appendChild(popup);
 
-  // 定位弹窗
   const rect = anchor.getBoundingClientRect();
   const popupH = 380;
   const top = rect.bottom + 2;
@@ -214,7 +260,7 @@ function makeBtn(text: string, primary: boolean, onClick: () => void): HTMLButto
   return b;
 }
 
-// ===================== 自定义列头组件 =====================
+// ===================== Custom Header Component =====================
 
 class FilterHeader {
   private eGui!: HTMLDivElement;
@@ -237,7 +283,7 @@ class FilterHeader {
     this.filterEl = document.createElement('span');
     this.filterEl.className = 'dv-ch-filter';
     this.filterEl.innerHTML = '<svg viewBox="0 0 12 12" width="10" height="10"><path d="M1 1h10L7.5 5.5V9.5L4.5 11V5.5z" fill="currentColor"/></svg>';
-    this.filterEl.title = '筛选';
+    this.filterEl.title = t('filter');
 
     this.eGui.appendChild(label);
     this.eGui.appendChild(this.sortEl);
@@ -276,7 +322,7 @@ function updateFilterIcons(): void {
   gridApi.refreshHeader();
 }
 
-// ===================== 工具函数 =====================
+// ===================== Utilities =====================
 
 function isDark(): boolean {
   return document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
@@ -288,7 +334,7 @@ function fmtSize(b: number): string {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
-// ===================== 主题 =====================
+// ===================== Theme =====================
 
 function buildTheme(): Theme {
   const d = isDark();
@@ -311,7 +357,7 @@ function buildTheme(): Theme {
   });
 }
 
-// ===================== 加载表格 =====================
+// ===================== Load Sheet =====================
 
 function loadSheet(index: number): void {
   const sheet = allSheets[index];
@@ -389,7 +435,7 @@ function loadSheet(index: number): void {
   updateStatus(sheet);
 }
 
-// ===================== 状态栏 =====================
+// ===================== Status Bar =====================
 
 function updateStatus(sheet: SheetData): void {
   const el = document.getElementById('dv-status');
@@ -399,8 +445,8 @@ function updateStatus(sheet: SheetData): void {
   const p: string[] = [];
   if (dataPayloadCache) p.push(dataPayloadCache.fileName);
   if (allSheets.length > 1) p.push(`[${sheet.name}]`);
-  p.push(`共 ${total.toLocaleString()} 行`);
-  if (displayed !== total) p.push(`筛选后 ${displayed.toLocaleString()} 行`);
+  p.push(t('totalRows', { n: total.toLocaleString() }));
+  if (displayed !== total) p.push(t('filteredRows', { n: displayed.toLocaleString() }));
   if (dataPayloadCache) {
     p.push(fmtSize(dataPayloadCache.fileSizeBytes));
     p.push(`${dataPayloadCache.parseTimeMs}ms`);
@@ -408,7 +454,7 @@ function updateStatus(sheet: SheetData): void {
   el.textContent = p.join('  ·  ');
 }
 
-// ===================== Sheet 标签 =====================
+// ===================== Sheet Tabs =====================
 
 function renderSheetTabs(): void {
   const bar = document.getElementById('dv-sheet-bar')!;
@@ -429,7 +475,7 @@ function renderSheetTabs(): void {
   });
 }
 
-// ===================== UI 构建 =====================
+// ===================== Build UI =====================
 
 let appBuilt = false;
 let searchTimer: number;
@@ -447,7 +493,7 @@ function buildApp(): void {
   const searchBox = document.createElement('input');
   searchBox.type = 'text';
   searchBox.className = 'dv-search';
-  searchBox.placeholder = '搜索全部列...';
+  searchBox.placeholder = t('search');
   searchBox.addEventListener('input', () => {
     clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => {
@@ -473,7 +519,7 @@ function buildApp(): void {
   app.appendChild(bar);
 }
 
-// ===================== 样式 =====================
+// ===================== Styles =====================
 
 function injectStyles(): void {
   const s = document.createElement('style');
@@ -486,14 +532,14 @@ body{margin:0;overflow:hidden;
   color:var(--vscode-editor-foreground,#333)}
 #app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
 
-/* 加载中 */
+/* loading */
 .dv-loading{display:flex;align-items:center;justify-content:center;height:100vh;
   color:var(--vscode-descriptionForeground,#888);font-size:13px;gap:8px}
 .dv-spinner{width:18px;height:18px;border:2px solid var(--vscode-descriptionForeground,#888);
   border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* 工具栏 */
+/* toolbar */
 .dv-toolbar{display:flex;align-items:center;gap:10px;padding:4px 8px;
   background:var(--vscode-editorWidget-background,#f3f3f3);
   border-bottom:1px solid var(--vscode-editorWidget-border,#d4d4d4);flex-shrink:0}
@@ -506,14 +552,14 @@ body{margin:0;overflow:hidden;
 .dv-status{font-size:11px;margin-left:auto;white-space:nowrap;
   color:var(--vscode-descriptionForeground,#888)}
 
-/* 表格 */
+/* grid */
 #dv-grid{flex:1;overflow:hidden}
 
-/* 单元格竖线 */
+/* cell borders */
 .ag-cell{border-right:1px solid var(--ag-border-color,#ddd) !important}
 .ag-header-cell{border-right:1px solid var(--ag-border-color,#ddd) !important}
 
-/* 自定义列头 */
+/* custom header */
 .dv-ch{display:flex;align-items:center;width:100%;height:100%;gap:2px;
   user-select:none;padding:0 2px}
 .dv-ch-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
@@ -541,7 +587,7 @@ body{margin:0;overflow:hidden;
   color:var(--vscode-editor-foreground,#333);font-weight:600;
   border-top-color:var(--vscode-focusBorder,#0078d4)}
 
-/* ===== 筛选弹窗 ===== */
+/* ===== filter popup ===== */
 .dv-fp-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:999}
 .dv-fp{position:fixed;z-index:1000;width:250px;max-height:380px;
   background:var(--vscode-editorWidget-background,#fff);
@@ -578,9 +624,10 @@ body{margin:0;overflow:hidden;
   document.head.appendChild(s);
 }
 
-// ===================== 数据处理 =====================
+// ===================== Data Handling =====================
 
 function handleData(payload: DataPayload): void {
+  if (payload.lang) currentLang = payload.lang;
   dataPayloadCache = payload;
   allSheets = payload.sheets;
   currentSheetIndex = 0;
@@ -592,7 +639,7 @@ function handleData(payload: DataPayload): void {
 function handleError(payload: { message: string }): void {
   const app = document.getElementById('app')!;
   app.innerHTML = `<div style="padding:24px;color:var(--vscode-errorForeground,#d32f2f);">
-    <h3 style="margin-bottom:8px;">文件解析失败</h3>
+    <h3 style="margin-bottom:8px;">${t('parseFailed')}</h3>
     <p style="font-size:13px;">${payload.message}</p></div>`;
 }
 
@@ -606,8 +653,9 @@ function handleCellUpdate(payload: { sheetIndex: number; rowIndex: number; field
   }
 }
 
-// ===================== 初始化 =====================
+// ===================== Init =====================
 
+currentLang = detectLang();
 injectStyles();
 
 window.addEventListener('message', (event) => {

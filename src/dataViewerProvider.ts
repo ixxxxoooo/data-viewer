@@ -73,7 +73,7 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
     );
   }
 
-  // ---- 文档生命周期 ----
+  // ---- Document Lifecycle ----
 
   async openCustomDocument(
     uri: vscode.Uri,
@@ -113,6 +113,7 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
               ...document.data,
               parseTimeMs: document.parseTimeMs,
               fileSizeBytes: document.fileSizeBytes,
+              lang: vscode.env.language?.startsWith('zh') ? 'zh' : 'en',
             },
           });
           break;
@@ -123,14 +124,14 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
     });
   }
 
-  // ---- 编辑处理 ----
+  // ---- Edit Handling ----
 
   private handleEdit(document: DataDocument, edit: CellEdit): void {
     document.applyEdit(edit);
 
     this._onDidChangeCustomDocument.fire({
       document,
-      label: '编辑单元格',
+      label: 'Edit Cell',
       undo: async () => {
         document.undoEdit(edit);
         this.sendCellUpdate(document, edit.sheetIndex, edit.rowIndex, edit.field, edit.oldValue);
@@ -150,7 +151,7 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
     });
   }
 
-  // ---- 保存 / 还原 / 备份 ----
+  // ---- Save / Revert / Backup ----
 
   async saveCustomDocument(document: DataDocument, _token: vscode.CancellationToken): Promise<void> {
     await this.writeFile(document.uri, document.data);
@@ -180,12 +181,12 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
     return {
       id: context.destination.toString(),
       delete: async () => {
-        try { await vscode.workspace.fs.delete(context.destination); } catch { /* 忽略 */ }
+        try { await vscode.workspace.fs.delete(context.destination); } catch { /* ignore */ }
       },
     };
   }
 
-  // ---- 内部工具方法 ----
+  // ---- Internal Helpers ----
 
   private async parseFile(uri: vscode.Uri): Promise<{
     parseResult: ParseResult;
@@ -221,17 +222,17 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
     const nonce = getNonce();
 
     return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <title>数据表查看器</title>
+  <title>Data Viewer</title>
 </head>
 <body>
   <div id="app">
-    <div class="dv-loading"><div class="dv-spinner"></div><span>正在加载...</span></div>
+    <div class="dv-loading"><div class="dv-spinner"></div><span>Loading...</span></div>
   </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

@@ -1,161 +1,170 @@
-# 数据表查看器 (Data Viewer)
+# Data Viewer
+
+**English** | [中文](README.zh-CN.md)
 
 <p align="center">
-  <img src="images/icon.png" alt="数据表查看器" width="128" height="128">
+  <img src="images/icon.png" alt="Data Viewer" width="128" height="128">
 </p>
 
 <p align="center">
-  高性能 CSV/Excel 数据表查看器 VS Code 扩展，支持虚拟滚动、筛选、排序。
+  A high-performance CSV/Excel data viewer for VS Code with virtual scrolling, filtering, sorting and editing.
 </p>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=ixxxxoooo.data-viewer"><img src="https://img.shields.io/visual-studio-marketplace/v/ixxxxoooo.data-viewer?style=flat-square&label=%E7%89%88%E6%9C%AC" alt="版本"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-blue?style=flat-square" alt="MIT License"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=ixxxxoooo.data-viewer"><img src="https://img.shields.io/visual-studio-marketplace/v/ixxxxoooo.data-viewer?style=flat-square&label=version" alt="Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
 </p>
 
 ---
 
-## 功能特性
+## Features
 
-- **CSV/TSV 支持** — 自动检测分隔符（逗号、制表符、分号等），支持带引号字段
-- **Excel 支持** — 读取 `.xlsx` / `.xls` 文件，支持多 Sheet 切换
-- **虚拟滚动** — 基于 AG Grid，轻松处理 10 万行以上数据
-- **全列快速搜索** — 一键搜索所有列的内容
-- **独立列筛选** — 每列支持浮动筛选器，自动区分数字列和文本列
-- **列排序** — 点击列头排序，支持多列排序
-- **行号列** — 固定在左侧的行号，方便定位
-- **主题适配** — 自动适配 VS Code 浅色/深色/高对比度主题
-- **状态栏** — 显示文件名、行数、筛选后行数、文件大小、解析耗时
-- **Unicode 支持** — 完整支持中文、日文、韩文等多字节字符
+- **CSV/TSV Support** — Auto-detects delimiters (comma, tab, semicolon, etc.) with quoted field support
+- **Excel Support** — Opens `.xlsx` / `.xls` files with multi-sheet tab switching
+- **Virtual Scrolling** — Powered by AG Grid, handles 100,000+ rows with ease
+- **Quick Search** — Search across all columns instantly
+- **Column Filtering** — Funnel-style filter popup per column with search, select all / deselect
+- **Column Sorting** — Click column headers to sort ascending / descending
+- **Double-click Editing** — Edit cell data in-place with full undo/redo and save support
+- **Row Numbers** — Pinned row number column for easy reference
+- **Theme Aware** — Automatically adapts to VS Code light / dark / high-contrast themes
+- **i18n** — Auto-detects VS Code language; supports English and Chinese
+- **Status Bar** — Shows file name, row count, filtered count, file size and parse time
 
-## 截图
+## Supported Formats
 
-打开 CSV/Excel 文件后，扩展会自动以数据表格式呈现：
+| Format | Extensions | Notes |
+|--------|-----------|-------|
+| CSV | `.csv` | Auto-detects delimiter |
+| TSV | `.tsv` | Tab-separated values |
+| Excel | `.xlsx` | Office Open XML |
+| Excel 97 | `.xls` | Legacy Excel format |
 
-```
-┌──────────────────────────────────────────────┐
-│ [搜索全部列...]                    状态信息   │
-├────┬──────────┬──────┬──────┬────────────────┤
-│ #  │ name     │ age  │ city │ score          │
-│    │ [筛选]   │[筛选]│[筛选]│ [筛选]         │
-├────┼──────────┼──────┼──────┼────────────────┤
-│ 1  │ 张三     │ 25   │ 北京 │ 92.5           │
-│ 2  │ 李四     │ 30   │ 上海 │ 88.0           │
-│ 3  │ 王五     │ 22   │ 广州 │ 95.3           │
-│ ...│ ...      │ ...  │ ...  │ ...            │
-├────┴──────────┴──────┴──────┴────────────────┤
-│ [Sheet1] [Sheet2] [Sheet3]                    │
-└──────────────────────────────────────────────┘
-```
+## Installation
 
-## 支持的文件格式
+### From VS Code Marketplace
 
-| 格式 | 扩展名 | 说明 |
-|------|--------|------|
-| CSV | `.csv` | 逗号分隔值，自动检测分隔符 |
-| TSV | `.tsv` | 制表符分隔值 |
-| Excel | `.xlsx` | Office Open XML 电子表格 |
-| Excel 97 | `.xls` | 旧版 Excel 格式 |
+Search for `Data Viewer` in the Extensions panel.
 
-## 安装
+### From GitHub Releases
 
-### 从 VS Code 市场安装
-
-在 VS Code 扩展面板搜索 `数据表查看器` 或 `data-viewer`。
-
-### 从 VSIX 安装
+1. Go to the [Releases page](https://github.com/ixxxxoooo/data-viewer/releases)
+2. Download the latest `.vsix` file
+3. Install it:
 
 ```bash
-code --install-extension data-viewer-0.1.0.vsix
+code --install-extension data-viewer-x.x.x.vsix
 ```
 
-### 从源码构建
+### Build from Source
 
 ```bash
 git clone https://github.com/ixxxxoooo/data-viewer.git
 cd data-viewer
 npm install
 npm run build
+npm run package
 ```
 
-## 使用方式
+## Usage
 
-安装后，直接在 VS Code 中打开 `.csv`、`.tsv`、`.xlsx`、`.xls` 文件即可。扩展会自动接管这些文件类型的打开方式。
+After installation, simply open any `.csv`, `.tsv`, `.xlsx`, or `.xls` file in VS Code. The extension automatically registers as the default editor for these file types.
 
-如需切换回默认文本编辑器，右键文件标签 → "重新打开编辑器" → 选择 "文本编辑器"。
+To switch back to the default text editor, right-click the file tab → "Reopen Editor With..." → select "Text Editor".
 
-## 性能
+## Performance
 
-| 数据规模 | CSV 解析 | Excel 解析 |
-|----------|----------|-----------|
-| 1,000 行 | < 100ms | < 200ms |
-| 10,000 行 | < 500ms | < 1s |
-| 100,000 行 | < 3s | < 5s |
+| Scale | CSV Parse | Excel Parse |
+|-------|-----------|-------------|
+| 1,000 rows | < 100ms | < 200ms |
+| 10,000 rows | < 500ms | < 1s |
+| 100,000 rows | < 3s | < 5s |
 
-基于 AG Grid 的虚拟滚动机制，即使数据量很大，滚动和操作也非常流畅。
+Virtual scrolling ensures smooth interaction even with very large datasets.
 
-## 开发
+## Development
 
-### 前置要求
+### Prerequisites
 
 - Node.js >= 18
 - npm >= 9
 
-### 常用命令
+### Commands
 
 ```bash
-# 安装依赖
-npm install
-
-# 构建
-npm run build
-
-# 监听模式（开发时使用）
-npm run watch
-
-# 运行测试
-npm test
-
-# 打包为 .vsix
-npm run package
+npm install        # Install dependencies
+npm run build      # Build extension
+npm run watch      # Watch mode for development
+npm test           # Run tests
+npm run package    # Package as .vsix
 ```
 
-### 调试
+### Debugging
 
-1. 在 VS Code 中打开项目
-2. 按 `F5` 启动扩展调试（会自动构建并启动扩展开发宿主）
-3. 在新窗口中打开一个 CSV/Excel 文件
+1. Open the project in VS Code
+2. Press `F5` to launch the Extension Development Host
+3. Open a CSV or Excel file in the new window
 
-### 项目结构
+### Project Structure
 
 ```
 data-viewer/
 ├── src/
-│   ├── extension.ts          # 扩展入口
-│   ├── dataViewerProvider.ts  # 自定义编辑器提供者
+│   ├── extension.ts           # Extension entry point
+│   ├── dataViewerProvider.ts  # Custom editor provider
 │   ├── parsers/
-│   │   ├── types.ts           # 解析结果类型定义
-│   │   ├── csvParser.ts       # CSV/TSV 解析器（PapaParse）
-│   │   └── excelParser.ts     # Excel 解析器（SheetJS）
+│   │   ├── types.ts           # Data types
+│   │   ├── csvParser.ts       # CSV/TSV parser (PapaParse)
+│   │   └── excelParser.ts     # Excel parser (SheetJS)
 │   └── webview/
-│       └── main.ts            # Webview 端 AG Grid 渲染
-├── test/
-│   ├── suite/                 # 测试用例
-│   ├── fixtures/              # 测试数据文件
-│   └── helpers/               # 测试辅助工具
-├── images/                    # 图标资源
-├── dist/                      # 构建输出
+│       └── main.ts            # Webview UI with AG Grid
+├── test/                      # Test suites and fixtures
+├── images/                    # Extension icon
+├── dist/                      # Build output
 └── package.json
 ```
 
-### 技术栈
+### Tech Stack
 
-- **AG Grid Community** — 高性能虚拟滚动表格
-- **PapaParse** — CSV/TSV 解析
-- **SheetJS (xlsx)** — Excel 文件解析
-- **esbuild** — 快速打包构建
-- **Jest + ts-jest** — 单元测试
+- **AG Grid Community** — High-performance virtual scrolling grid
+- **PapaParse** — CSV/TSV parsing
+- **SheetJS (xlsx)** — Excel file parsing
+- **esbuild** — Fast bundler
+- **Jest + ts-jest** — Unit testing
 
-## 许可证
+## Publishing
+
+### To VS Code Marketplace
+
+```bash
+# 1. Install vsce
+npm install -g @vscode/vsce
+
+# 2. Login with your publisher account
+vsce login <publisher-name>
+
+# 3. Package and publish
+vsce publish
+```
+
+### To GitHub Releases
+
+```bash
+# 1. Build the .vsix
+npm run package
+
+# 2. Create a release on GitHub
+gh release create v0.1.0 data-viewer-0.1.0.vsix --title "v0.1.0" --notes "Initial release"
+```
+
+Others can then install directly:
+
+```bash
+# Download and install from GitHub
+gh release download v0.1.0 -p "*.vsix" -R ixxxxoooo/data-viewer
+code --install-extension data-viewer-0.1.0.vsix
+```
+
+## License
 
 [MIT](LICENSE) © ixxxxoooo

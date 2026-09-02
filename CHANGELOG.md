@@ -1,18 +1,20 @@
-# 更新日志
+# Changelog
 
-本项目遵循 [Semantic Versioning](https://semver.org/) 语义化版本规范。
+This project follows [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - 2024-01-01
+## [0.1.0] - 2026-09-02
 
-### 新增
+### Added
 
-- CSV/TSV 文件高性能查看器，基于 AG Grid 虚拟滚动
-- Excel（.xlsx / .xls）文件查看，支持多 Sheet 切换
-- 全列快速搜索（Quick Filter）
-- 每列独立筛选（Floating Filter），自动检测数字/文本类型
-- 列排序、列宽调整、列拖拽
-- 行号列（固定左侧）
-- 自适应 VS Code 浅色/深色主题
-- 状态栏显示文件名、行数、文件大小、解析耗时
-- 支持中文等 Unicode 字符
-- CSP 安全策略
+- High-performance CSV/TSV viewer with auto delimiter detection (PapaParse)
+- Excel (`.xlsx` / `.xls`) viewer with multi-sheet tab switching (SheetJS)
+- Virtual scrolling powered by AG Grid for 100,000+ rows
+- Quick search across all columns
+- Per-column funnel filter popup with search, select all, apply/cancel/clear
+- Column sorting by clicking headers (ascending / descending toggle)
+- Double-click cell editing with undo/redo and save support
+- Pinned row number column
+- Auto theme adaptation (light / dark / high-contrast)
+- i18n support (English default, Chinese auto-detected)
+- Status bar with file name, row count, file size and parse time
+- CSP security policy for webview
