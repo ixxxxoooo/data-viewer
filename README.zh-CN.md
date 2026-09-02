@@ -56,6 +56,20 @@
 code --install-extension data-viewer-x.x.x.vsix
 ```
 
+### 在 Cursor 中安装
+
+Cursor 基于 VS Code 构建，`.vsix` 文件同样适用：
+
+1. 前往 [Releases 页面](https://github.com/ixxxxoooo/data-viewer/releases)
+2. 下载最新的 `.vsix` 文件
+3. 通过 Cursor CLI 安装：
+
+```bash
+cursor --install-extension data-viewer-x.x.x.vsix
+```
+
+或手动安装：打开扩展面板（⇧⌘X）→ 点击 `...` 菜单 → **从 VSIX 安装...** → 选择下载的文件。
+
 ### 从源码构建
 
 ```bash

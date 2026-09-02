@@ -56,6 +56,20 @@ Search for `Data Viewer` in the Extensions panel.
 code --install-extension data-viewer-x.x.x.vsix
 ```
 
+### In Cursor
+
+Cursor is built on VS Code, so the `.vsix` works there too:
+
+1. Go to the [Releases page](https://github.com/ixxxxoooo/data-viewer/releases)
+2. Download the latest `.vsix` file
+3. Install it via the Cursor CLI:
+
+```bash
+cursor --install-extension data-viewer-x.x.x.vsix
+```
+
+Or install manually: open the Extensions panel (⇧⌘X) → click the `...` menu → **Install from VSIX...** → select the downloaded file.
+
 ### Build from Source
 
 ```bash
@@ -163,6 +177,9 @@ Others can then install directly:
 # Download and install from GitHub
 gh release download v0.1.0 -p "*.vsix" -R ixxxxoooo/data-viewer
 code --install-extension data-viewer-0.1.0.vsix
+
+# Or in Cursor
+cursor --install-extension data-viewer-0.1.0.vsix
 ```
 
 ## License
