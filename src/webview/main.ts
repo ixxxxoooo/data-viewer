@@ -106,13 +106,16 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
   closeFilterPopup();
   if (!gridApi) return;
 
-  const allVals = new Set<string>();
+  const valCounts = new Map<string, number>();
+  let totalCount = 0;
   gridApi.forEachNode((node: any) => {
     if (!node.data) return;
-    const v = node.data[field];
-    allVals.add(v == null ? '' : String(v));
+    const raw = node.data[field];
+    const v = raw == null ? '' : String(raw);
+    valCounts.set(v, (valCounts.get(v) || 0) + 1);
+    totalCount++;
   });
-  const sorted = [...allVals].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  const sorted = [...valCounts.keys()].sort((a, b) => a.localeCompare(b, 'zh-CN'));
   const current = columnFilters.get(field);
   const staged = current ? new Set(current) : new Set(sorted);
 
@@ -139,8 +142,12 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
   const allLbl = document.createElement('span');
   allLbl.className = 'dv-fp-lbl';
   allLbl.textContent = t('selectAll');
+  const allCnt = document.createElement('span');
+  allCnt.className = 'dv-fp-count';
+  allCnt.textContent = totalCount.toLocaleString();
   allRow.appendChild(allCb);
   allRow.appendChild(allLbl);
+  allRow.appendChild(allCnt);
   popup.appendChild(allRow);
 
   const list = document.createElement('div');
@@ -175,8 +182,14 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
       lbl.className = 'dv-fp-lbl';
       lbl.textContent = v || t('empty');
       if (!v) lbl.style.opacity = '0.5';
+
+      const cnt = document.createElement('span');
+      cnt.className = 'dv-fp-count';
+      cnt.textContent = (valCounts.get(v) || 0).toLocaleString();
+
       row.appendChild(cb);
       row.appendChild(lbl);
+      row.appendChild(cnt);
       list.appendChild(row);
       cbMap.set(v, cb);
     }
@@ -260,6 +273,29 @@ function makeBtn(text: string, primary: boolean, onClick: () => void): HTMLButto
   return b;
 }
 
+// ===================== Cell & Header Crosshair State =====================
+
+let activeRowIndex: number | null = null;
+let activeColId: string | null = null;
+
+function updateRowHighlight(): void {
+  if (!gridApi) return;
+  gridApi.refreshCells({ columns: ['__dv_row_num'], force: true });
+}
+
+function updateHeaderHighlight(prevColId: string | null, newColId: string | null): void {
+  const gridRoot = document.getElementById('dv-grid');
+  if (!gridRoot) return;
+  if (prevColId) {
+    const prevHeaders = gridRoot.querySelectorAll(`.ag-header-cell[col-id="${prevColId}"]`);
+    prevHeaders.forEach((el) => el.classList.remove('dv-header-active'));
+  }
+  if (newColId && newColId !== '__dv_row_num') {
+    const newHeaders = gridRoot.querySelectorAll(`.ag-header-cell[col-id="${newColId}"]`);
+    newHeaders.forEach((el) => el.classList.add('dv-header-active'));
+  }
+}
+
 // ===================== Custom Header Component =====================
 
 class FilterHeader {
@@ -300,6 +336,16 @@ class FilterHeader {
     }
     this.refreshSort();
     this.refreshFilter();
+    this.syncActive();
+  }
+
+  syncActive(): void {
+    const colId = this.params.column?.getColId?.();
+    const isActive = colId && colId === activeColId;
+    const parentHeader = this.eGui.closest('.ag-header-cell');
+    if (parentHeader) {
+      parentHeader.classList.toggle('dv-header-active', !!isActive);
+    }
   }
 
   refreshSort(): void {
@@ -313,7 +359,12 @@ class FilterHeader {
   }
 
   getGui(): HTMLElement { return this.eGui; }
-  refresh(): boolean { this.refreshSort(); this.refreshFilter(); return true; }
+  refresh(): boolean {
+    this.refreshSort();
+    this.refreshFilter();
+    this.syncActive();
+    return true;
+  }
   destroy(): void {}
 }
 
@@ -325,7 +376,9 @@ function updateFilterIcons(): void {
 // ===================== Utilities =====================
 
 function isDark(): boolean {
-  return document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
+  return document.body.classList.contains('vscode-dark') ||
+         document.body.classList.contains('vscode-high-contrast') ||
+         (!document.body.classList.contains('vscode-light') && window.matchMedia('(prefers-color-scheme: dark)').matches);
 }
 
 function fmtSize(b: number): string {
@@ -339,22 +392,50 @@ function fmtSize(b: number): string {
 function buildTheme(): Theme {
   const d = isDark();
   return themeQuartz.withParams(d ? {
-    backgroundColor: '#1e1e1e', foregroundColor: '#d4d4d4',
-    headerBackgroundColor: '#2d2d2d', headerForegroundColor: '#cccccc',
-    borderColor: '#404040', rowHoverColor: '#2a2d2e',
-    selectedRowBackgroundColor: '#094771', oddRowBackgroundColor: '#252526',
-    headerFontSize: 12, fontSize: 12, spacing: 3, wrapperBorderRadius: 0,
+    backgroundColor: '#181818', foregroundColor: '#cccccc',
+    headerBackgroundColor: '#222222', headerForegroundColor: '#f0f0f0',
+    borderColor: '#2e2e2e', rowHoverColor: '#262b32',
+    selectedRowBackgroundColor: 'transparent', oddRowBackgroundColor: '#202020',
+    headerFontSize: 12, fontSize: 12, spacing: 2.5, wrapperBorderRadius: 0,
     fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
     headerColumnResizeHandleHeight: '0%', cellHorizontalPaddingScale: 0.6,
   } : {
     backgroundColor: '#ffffff', foregroundColor: '#333333',
-    headerBackgroundColor: '#f0f0f0', headerForegroundColor: '#333333',
-    borderColor: '#d4d4d4', rowHoverColor: '#e8f4fd',
-    selectedRowBackgroundColor: '#c7e0f4', oddRowBackgroundColor: '#fafafa',
-    headerFontSize: 12, fontSize: 12, spacing: 3, wrapperBorderRadius: 0,
+    headerBackgroundColor: '#f2f3f5', headerForegroundColor: '#222222',
+    borderColor: '#dcdfe6', rowHoverColor: '#edf2f7',
+    selectedRowBackgroundColor: 'transparent', oddRowBackgroundColor: '#f7f8fa',
+    headerFontSize: 12, fontSize: 12, spacing: 2.5, wrapperBorderRadius: 0,
     fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
     headerColumnResizeHandleHeight: '0%', cellHorizontalPaddingScale: 0.6,
   });
+}
+
+// ===================== Column Width Estimation =====================
+
+function estimateColumnWidth(header: string, rows: Record<string, unknown>[]): number {
+  const measureStr = (s: string): number => {
+    let w = 0;
+    for (let i = 0; i < s.length; i++) {
+      w += s.charCodeAt(i) > 255 ? 13 : 7.5;
+    }
+    return w;
+  };
+
+  let maxWidth = measureStr(header);
+  const sampleSize = Math.min(rows.length, 100);
+  for (let i = 0; i < sampleSize; i++) {
+    const val = rows[i]?.[header];
+    if (val != null) {
+      const str = String(val);
+      const w = measureStr(str);
+      if (w > maxWidth) maxWidth = w;
+      if (maxWidth > 360) break;
+    }
+  }
+
+  // 排序箭头与筛选图标宽度(约28px) + 单元格左右padding(16px) = 44px
+  const estimated = Math.ceil(maxWidth + 44);
+  return Math.min(Math.max(estimated, 80), 360);
 }
 
 // ===================== Load Sheet =====================
@@ -364,35 +445,61 @@ function loadSheet(index: number): void {
   if (!sheet) return;
 
   columnFilters.clear();
+  activeRowIndex = null;
+  activeColId = null;
   sheet.rows.forEach((r, i) => { (r as any).__dvIdx = i; });
 
   const rowNumCol: ColDef = {
-    headerName: '#',
+    colId: '__dv_row_num',
+    headerName: '',
     valueGetter: (p) => p.node ? p.node.rowIndex! + 1 : '',
     width: 52, minWidth: 40, maxWidth: 72,
     pinned: 'left', sortable: false, resizable: false, editable: false,
     suppressMovable: true, suppressHeaderMenuButton: true,
-    cellStyle: {
-      color: 'var(--ag-secondary-foreground-color,#888)',
-      backgroundColor: 'var(--ag-header-background-color)',
-      fontWeight: '400', textAlign: 'center',
+    cellClass: (p) => {
+      const isActive = p.node && p.node.rowIndex === activeRowIndex;
+      return isActive ? 'dv-row-num-cell dv-row-num-active' : 'dv-row-num-cell';
     },
   };
 
-  const dataCols: ColDef[] = sheet.headers.map((h) => ({
-    field: h, headerName: h,
-    headerComponent: FilterHeader,
-    sortable: true, resizable: true, editable: true,
-    minWidth: 72, cellDataType: false,
-    suppressHeaderMenuButton: true,
-    valueSetter: (params: any) => {
-      const raw = params.newValue;
-      if (raw === params.oldValue) return false;
-      const num = Number(raw);
-      params.data[params.colDef.field!] = (raw !== '' && raw != null && !isNaN(num)) ? num : raw;
-      return true;
-    },
-  }));
+  // 检测列是否为纯数值列，是则居右对齐
+  const isColNumeric = (field: string) => {
+    let numCount = 0;
+    let totalCount = 0;
+    const sample = sheet.rows.slice(0, 100);
+    for (const r of sample) {
+      const val = r[field];
+      if (val != null && val !== '') {
+        totalCount++;
+        if (typeof val === 'number' || (!isNaN(Number(val)) && typeof val !== 'boolean')) {
+          numCount++;
+        }
+      }
+    }
+    return totalCount > 0 && (numCount / totalCount) >= 0.8;
+  };
+
+  const dataCols: ColDef[] = sheet.headers.map((h) => {
+    const isNum = isColNumeric(h);
+    const colWidth = estimateColumnWidth(h, sheet.rows);
+    return {
+      field: h, headerName: h,
+      headerComponent: FilterHeader,
+      sortable: true, resizable: true, editable: true,
+      width: colWidth,
+      minWidth: 60,
+      cellDataType: false,
+      suppressHeaderMenuButton: true,
+      cellStyle: isNum ? { textAlign: 'right' } : undefined,
+      valueSetter: (params: any) => {
+        const raw = params.newValue;
+        if (raw === params.oldValue) return false;
+        const num = Number(raw);
+        params.data[params.colDef.field!] = (raw !== '' && raw != null && !isNaN(num)) ? num : raw;
+        return true;
+      },
+    };
+  });
 
   const container = document.getElementById('dv-grid')!;
   if (gridApi) {
@@ -409,17 +516,26 @@ function loadSheet(index: number): void {
     columnDefs: [rowNumCol, ...dataCols],
     rowData: sheet.rows,
     getRowId: (p) => String(p.data.__dvIdx),
-    defaultColDef: { flex: 1, minWidth: 80, sortable: true, resizable: true },
+    defaultColDef: { minWidth: 60, sortable: true, resizable: true },
     isExternalFilterPresent,
     doesExternalFilterPass,
     animateRows: false,
     rowBuffer: 30,
     suppressColumnVirtualisation: false,
-    rowSelection: 'multiple' as const,
     enableCellTextSelection: true,
     ensureDomOrder: true,
     stopEditingWhenCellsLoseFocus: true,
     singleClickEdit: false,
+    onCellFocused: (e) => {
+      const newRow = e.rowIndex;
+      const newCol = e.column ? e.column.getColId() : null;
+      if (newRow === activeRowIndex && newCol === activeColId) return;
+      const prevCol = activeColId;
+      activeRowIndex = newRow;
+      activeColId = newCol;
+      updateRowHighlight();
+      updateHeaderHighlight(prevCol, activeColId);
+    },
     onCellValueChanged: (e) => {
       if (_suppressEdit || !e.colDef.field) return;
       vscode.postMessage({
@@ -531,9 +647,46 @@ function injectStyles(): void {
   const s = document.createElement('style');
   s.textContent = `
 *,*::before,*::after{box-sizing:border-box}
+:root {
+  --dv-header-bg: #222222;
+  --dv-header-fg: #d0d0d0;
+  --dv-border-color: #2e2e2e;
+  --dv-cell-bg: #181818;
+  --dv-cell-fg: #cccccc;
+  --dv-focus-color: #0078d4;
+  --dv-header-active-bg: rgba(0, 120, 212, 0.16);
+}
+body.vscode-light, body:not(.vscode-dark):not(.vscode-high-contrast) {
+  --dv-header-bg: #f2f3f5;
+  --dv-header-fg: #333333;
+  --dv-border-color: #dcdfe6;
+  --dv-cell-bg: #ffffff;
+  --dv-cell-fg: #333333;
+  --dv-focus-color: #0078d4;
+  --dv-header-active-bg: rgba(0, 120, 212, 0.1);
+}
+body.vscode-dark {
+  --dv-header-bg: #222222;
+  --dv-header-fg: #d0d0d0;
+  --dv-border-color: #2e2e2e;
+  --dv-cell-bg: #181818;
+  --dv-cell-fg: #cccccc;
+  --dv-focus-color: #0078d4;
+  --dv-header-active-bg: rgba(0, 120, 212, 0.16);
+}
+body.vscode-high-contrast {
+  --dv-header-bg: #000000;
+  --dv-header-fg: #ffffff;
+  --dv-border-color: #6fc3df;
+  --dv-cell-bg: #000000;
+  --dv-cell-fg: #ffffff;
+  --dv-focus-color: #6fc3df;
+  --dv-header-active-bg: #004b87;
+}
+
 body{margin:0;overflow:hidden;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  font-size:13px;
+  font-size:12px;
   background:var(--vscode-editor-background,#fff);
   color:var(--vscode-editor-foreground,#333)}
 #app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
@@ -548,7 +701,7 @@ body{margin:0;overflow:hidden;
 /* toolbar */
 .dv-toolbar{display:flex;align-items:center;gap:10px;padding:4px 8px;
   background:var(--vscode-editorWidget-background,#f3f3f3);
-  border-bottom:1px solid var(--vscode-editorWidget-border,#d4d4d4);flex-shrink:0}
+  border-bottom:1px solid var(--dv-border-color,#2e2e2e);flex-shrink:0}
 .dv-search{padding:3px 8px;width:220px;
   border:1px solid var(--vscode-input-border,#cecece);border-radius:3px;
   background:var(--vscode-input-background,#fff);
@@ -558,18 +711,93 @@ body{margin:0;overflow:hidden;
 .dv-status{font-size:11px;margin-left:auto;white-space:nowrap;
   color:var(--vscode-descriptionForeground,#888)}
 
-/* grid */
+/* grid wrapper */
 #dv-grid{flex:1;overflow:hidden}
+.ag-root-wrapper{border:none !important}
 
-/* cell borders */
-.ag-cell{border-right:1px solid var(--ag-border-color,#ddd) !important}
-.ag-header-cell{border-right:1px solid var(--ag-border-color,#ddd) !important}
+/* 单元格与表头细边框 —— 线条分明且保证AG Grid绝对定位正常 */
+.ag-cell{border-right:1px solid var(--dv-border-color) !important;
+  border-bottom:1px solid var(--dv-border-color) !important;
+  font-size:12px}
+.ag-header-cell{background-color:var(--dv-header-bg) !important;
+  border-right:1px solid var(--dv-border-color) !important;
+  border-bottom:1px solid var(--dv-border-color) !important}
+.ag-header{background-color:var(--dv-header-bg) !important;
+  border-bottom:1px solid var(--dv-border-color) !important}
+.ag-pinned-left-header{background-color:var(--dv-header-bg) !important}
 
-/* custom header */
+/* 第一列行号单元格（与第一行表头颜色一致） */
+.dv-row-num-cell{
+  background-color:var(--dv-header-bg) !important;
+  color:var(--dv-header-fg) !important;
+  font-weight:600 !important;
+  font-size:12px !important;
+  user-select:none;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  padding:0 !important;
+  transition:background-color .1s, color .1s}
+
+/* 选中的行序号高亮（位置指示亮一下） */
+body.vscode-dark .dv-row-num-active{
+  background-color:#2a394a !important;
+  color:#ffffff !important;
+  box-shadow:inset 3px 0 0 var(--dv-focus-color,#0078d4) !important}
+body:not(.vscode-dark) .dv-row-num-active{
+  background-color:#dbeafe !important;
+  color:#1e40af !important;
+  box-shadow:inset 3px 0 0 var(--dv-focus-color,#0078d4) !important}
+
+/* 选中的列头高亮与底边亮蓝指示条（位置指示亮一下） */
+.ag-header-cell.dv-header-active{
+  background-color:var(--dv-header-active-bg) !important}
+.ag-header-cell.dv-header-active::after{
+  content:'';
+  position:absolute;
+  bottom:0;
+  left:0;
+  right:0;
+  height:2.5px;
+  background-color:var(--dv-focus-color,#0078d4);
+  z-index:10;
+  pointer-events:none}
+.ag-header-cell.dv-header-active .dv-ch-text{
+  color:var(--dv-focus-color,#40a9ff);
+  font-weight:700}
+
+/* 斑马纹奇偶行交替与悬停 */
+body.vscode-dark .ag-row-odd{background-color:#202020 !important}
+body.vscode-dark .ag-row-even{background-color:#181818 !important}
+body:not(.vscode-dark) .ag-row-odd{background-color:#f7f8fa !important}
+body:not(.vscode-dark) .ag-row-even{background-color:#ffffff !important}
+body.vscode-dark .ag-row:hover{background-color:#262b32 !important}
+body:not(.vscode-dark) .ag-row:hover{background-color:#edf2f7 !important}
+
+/* 选中单元格高亮（取消整行高亮，仅选中单元格亮） */
+.ag-row-selected{
+  background-color:transparent !important}
+body.vscode-dark .ag-cell-focus:not(.dv-row-num-cell){
+  background-color:#004b87 !important;
+  color:#ffffff !important;
+  font-weight:600;
+  outline:1px solid #1084d8 !important;
+  outline-offset:-1px}
+body:not(.vscode-dark) .ag-cell-focus:not(.dv-row-num-cell){
+  background-color:#bae0fd !important;
+  color:#0c3b60 !important;
+  font-weight:600;
+  outline:1px solid #0078d4 !important;
+  outline-offset:-1px}
+.ag-cell-focus.dv-row-num-cell{
+  outline:none !important}
+
+/* custom header wrapper & content */
+.ag-header-cell-comp-wrapper{height:100%;width:100%;display:flex;align-items:center}
 .dv-ch{display:flex;align-items:center;width:100%;height:100%;gap:2px;
-  user-select:none;padding:0 2px}
+  user-select:none;padding:0 4px}
 .dv-ch-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  cursor:pointer;font-weight:500}
+  cursor:pointer;font-weight:600;font-size:12px}
 .dv-ch-sort{font-size:11px;opacity:.6;flex-shrink:0}
 .dv-ch-filter{cursor:pointer;font-size:9px;padding:2px 4px;border-radius:3px;
   opacity:.4;flex-shrink:0;transition:all .15s}
@@ -579,14 +807,14 @@ body{margin:0;overflow:hidden;
 /* Sheet 标签 */
 .dv-sheet-bar{display:flex;align-items:stretch;
   background:var(--vscode-editorWidget-background,#f3f3f3);
-  border-top:1px solid var(--vscode-editorWidget-border,#d4d4d4);
+  border-top:1px solid var(--dv-border-color,#2e2e2e);
   flex-shrink:0;overflow-x:auto;min-height:0}
 .dv-sheet-bar:empty{display:none}
 .dv-sheet-tab{padding:5px 18px;cursor:pointer;font-size:11px;
   border:none;background:transparent;
   color:var(--vscode-descriptionForeground,#666);
   border-top:2px solid transparent;
-  border-right:1px solid var(--vscode-editorWidget-border,#d4d4d4);
+  border-right:1px solid var(--dv-border-color,#2e2e2e);
   white-space:nowrap;transition:background .1s}
 .dv-sheet-tab:hover{background:var(--vscode-list-hoverBackground,rgba(0,0,0,.04))}
 .dv-sheet-tab.active{background:var(--vscode-editor-background,#fff);
@@ -595,7 +823,7 @@ body{margin:0;overflow:hidden;
 
 /* ===== filter popup ===== */
 .dv-fp-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:999}
-.dv-fp{position:fixed;z-index:1000;width:250px;max-height:380px;
+.dv-fp{position:fixed;z-index:1000;width:260px;max-height:380px;
   background:var(--vscode-editorWidget-background,#fff);
   border:1px solid var(--vscode-editorWidget-border,#d4d4d4);
   border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.18);
@@ -612,7 +840,8 @@ body{margin:0;overflow:hidden;
 .dv-fp-row:hover{background:var(--vscode-list-hoverBackground,rgba(0,0,0,.06))}
 .dv-fp-cb{width:15px;height:15px;flex-shrink:0;cursor:pointer;
   accent-color:var(--vscode-focusBorder,#0078d4)}
-.dv-fp-lbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}
+.dv-fp-lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}
+.dv-fp-count{font-size:11px;opacity:.55;margin-left:auto;padding-left:8px;user-select:none;flex-shrink:0;font-variant-numeric:tabular-nums}
 .dv-fp-list{flex:1;overflow-y:auto;min-height:60px;max-height:200px;
   border:1px solid var(--vscode-editorWidget-border,#e0e0e0);
   border-radius:3px;padding:2px;margin-bottom:8px}
@@ -663,6 +892,16 @@ function handleCellUpdate(payload: { sheetIndex: number; rowIndex: number; field
 
 currentLang = detectLang();
 injectStyles();
+
+// 监听主题切换，自动更新 AG Grid 主题配置
+const themeObserver = new MutationObserver(() => {
+  if (gridApi) {
+    gridApi.setGridOption('theme', buildTheme());
+    updateRowHighlight();
+    if (activeColId) updateHeaderHighlight(null, activeColId);
+  }
+});
+themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
 window.addEventListener('message', (event) => {
   const msg = event.data;
