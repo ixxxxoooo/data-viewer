@@ -395,7 +395,13 @@ function loadSheet(index: number): void {
   }));
 
   const container = document.getElementById('dv-grid')!;
-  if (gridApi) { gridApi.destroy(); gridApi = null; }
+  if (gridApi) {
+    gridApi.setGridOption('columnDefs', [rowNumCol, ...dataCols]);
+    gridApi.setGridOption('rowData', sheet.rows);
+    gridApi.onFilterChanged();
+    updateStatus(sheet);
+    return;
+  }
   container.innerHTML = '';
 
   const opts: GridOptions = {
@@ -671,4 +677,16 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeFilterPopup();
 });
 
-vscode.postMessage({ type: 'ready' });
+// 优先检查是否有直出的初始数据，消除 IPC 握手往返延迟
+const initDataEl = document.getElementById('dv-init-data');
+if (initDataEl && initDataEl.textContent) {
+  try {
+    const initPayload = JSON.parse(initDataEl.textContent);
+    handleData(initPayload);
+  } catch (e) {
+    console.error('Failed to parse init data, falling back to ready message', e);
+    vscode.postMessage({ type: 'ready' });
+  }
+} else {
+  vscode.postMessage({ type: 'ready' });
+}

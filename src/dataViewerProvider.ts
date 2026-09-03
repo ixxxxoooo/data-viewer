@@ -52,9 +52,67 @@ class DataDocument implements vscode.CustomDocument {
   dispose(): void {}
 }
 
+interface CacheEntry {
+  mtime: number;
+  size: number;
+  data: ParseResult;
+  parseTimeMs: number;
+}
+
+function cloneParseResult(result: ParseResult): ParseResult {
+  return {
+    fileName: result.fileName,
+    sheets: result.sheets.map((s) => ({
+      name: s.name,
+      headers: [...s.headers],
+      rows: s.rows.map((r) => ({ ...r })),
+    })),
+  };
+}
+
+class ParseCache {
+  private static readonly MAX_SIZE = 10;
+  private readonly cache = new Map<string, CacheEntry>();
+
+  get(uri: vscode.Uri, stat: vscode.FileStat): { data: ParseResult; parseTimeMs: number } | null {
+    const key = uri.toString();
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (entry.mtime !== stat.mtime || entry.size !== stat.size) {
+      this.cache.delete(key);
+      return null;
+    }
+    // 刷新 LRU 顺序
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return { data: cloneParseResult(entry.data), parseTimeMs: 0 };
+  }
+
+  set(uri: vscode.Uri, stat: vscode.FileStat, data: ParseResult, parseTimeMs: number): void {
+    const key = uri.toString();
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= ParseCache.MAX_SIZE) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey) this.cache.delete(firstKey);
+    }
+    this.cache.set(key, {
+      mtime: stat.mtime,
+      size: stat.size,
+      data: cloneParseResult(data),
+      parseTimeMs,
+    });
+  }
+
+  delete(uri: vscode.Uri): void {
+    this.cache.delete(uri.toString());
+  }
+}
+
 export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocument> {
   private static readonly viewTypes = ['dataViewer.csvEditor', 'dataViewer.excelEditor'];
   private readonly webviews = new Map<string, vscode.Webview>();
+  private readonly parseCache = new ParseCache();
 
   private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
     vscode.CustomDocumentEditEvent<DataDocument> | vscode.CustomDocumentContentChangeEvent<DataDocument>
@@ -102,7 +160,7 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
       ],
     };
 
-    webview.html = this.getHtml(webview);
+    webview.html = this.getHtml(webview, document);
 
     webview.onDidReceiveMessage(async (message) => {
       switch (message.type) {
@@ -162,6 +220,7 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
   }
 
   async revertCustomDocument(document: DataDocument, _token: vscode.CancellationToken): Promise<void> {
+    this.parseCache.delete(document.uri);
     const { parseResult, parseTimeMs, fileSizeBytes } = await this.parseFile(document.uri);
     document.replaceData(parseResult, parseTimeMs, fileSizeBytes);
 
@@ -193,6 +252,17 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
     parseTimeMs: number;
     fileSizeBytes: number;
   }> {
+    let stat: vscode.FileStat | undefined;
+    try {
+      stat = await vscode.workspace.fs.stat(uri);
+      const cached = this.parseCache.get(uri, stat);
+      if (cached) {
+        return { parseResult: cached.data, parseTimeMs: cached.parseTimeMs, fileSizeBytes: stat.size };
+      }
+    } catch {
+      // stat 失败时忽略，继续直接读取
+    }
+
     const data = await vscode.workspace.fs.readFile(uri);
     const buffer = Buffer.from(data);
     const fileName = path.basename(uri.fsPath);
@@ -204,10 +274,15 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
       : parseExcel(buffer, fileName);
     const parseTimeMs = Date.now() - startTime;
 
+    if (stat) {
+      this.parseCache.set(uri, stat, parseResult, parseTimeMs);
+    }
+
     return { parseResult, parseTimeMs, fileSizeBytes: data.byteLength };
   }
 
   private async writeFile(uri: vscode.Uri, data: ParseResult): Promise<void> {
+    this.parseCache.delete(uri);
     const ext = path.extname(uri.fsPath).toLowerCase();
     const content = (ext === '.csv' || ext === '.tsv')
       ? Buffer.from(serializeCsv(data), 'utf-8')
@@ -215,11 +290,18 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
     await vscode.workspace.fs.writeFile(uri, content);
   }
 
-  private getHtml(webview: vscode.Webview): string {
+  private getHtml(webview: vscode.Webview, document: DataDocument): string {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'main.js')
     );
     const nonce = getNonce();
+    const initialPayload = {
+      ...document.data,
+      parseTimeMs: document.parseTimeMs,
+      fileSizeBytes: document.fileSizeBytes,
+      lang: vscode.env.language?.startsWith('zh') ? 'zh' : 'en',
+    };
+    const serializedData = JSON.stringify(initialPayload).replace(/</g, '\\u003c');
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -234,6 +316,7 @@ export class DataViewerProvider implements vscode.CustomEditorProvider<DataDocum
   <div id="app">
     <div class="dv-loading"><div class="dv-spinner"></div><span>Loading...</span></div>
   </div>
+  <script id="dv-init-data" type="application/json" nonce="${nonce}">${serializedData}</script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

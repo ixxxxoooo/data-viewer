@@ -71,7 +71,7 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
-    "package": "vsce package --no-dependencies"
+    "package": "npx @vscode/vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
