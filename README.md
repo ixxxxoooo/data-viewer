@@ -1,17 +1,17 @@
-# Data Viewer
+# Excel & CSV Data Viewer
 
 **English** | [中文](README.zh-CN.md)
 
 <p align="center">
-  <img src="images/icon.png" alt="Data Viewer" width="128" height="128">
+  <img src="images/icon.png" alt="Excel & CSV Data Viewer" width="128" height="128">
 </p>
 
 <p align="center">
-  A high-performance CSV/Excel data viewer for VS Code with virtual scrolling, filtering, sorting and editing.
+  A high-performance Excel & CSV data viewer for VS Code with virtual scrolling, filtering, sorting and editing.
 </p>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=ixxxxoooo.data-viewer"><img src="https://img.shields.io/visual-studio-marketplace/v/ixxxxoooo.data-viewer?style=flat-square&label=version" alt="Version"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=ixxxxoooo.excel-csv-viewer"><img src="https://img.shields.io/visual-studio-marketplace/v/ixxxxoooo.excel-csv-viewer?style=flat-square&label=version" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
 </p>
 
