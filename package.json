@@ -1,5 +1,5 @@
 {
-  "name": "excel-csv-viewer",
+  "name": "excel-csv-data-viewer",
   "displayName": "Excel & CSV Data Viewer",
   "description": "High-performance Excel & CSV data viewer with virtual scrolling, filtering, sorting and cell editing",
   "version": "0.1.0",

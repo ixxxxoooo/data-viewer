@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=ixxxxoooo.excel-csv-viewer"><img src="https://img.shields.io/visual-studio-marketplace/v/ixxxxoooo.excel-csv-viewer?style=flat-square&label=version" alt="Version"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=ixxxxoooo.excel-csv-data-viewer"><img src="https://img.shields.io/visual-studio-marketplace/v/ixxxxoooo.excel-csv-data-viewer?style=flat-square&label=version" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
 </p>
 
