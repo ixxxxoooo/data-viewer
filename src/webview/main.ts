@@ -228,6 +228,11 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
     renderList(q ? sorted.filter(v => v.toLowerCase().includes(q)) : sorted);
     syncAll();
   });
+  search.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && ['a', 'c', 'v', 'x', 'z'].includes(e.key)) {
+      e.stopPropagation();
+    }
+  });
 
   renderList(sorted);
 
@@ -622,6 +627,12 @@ function buildApp(): void {
       gridApi?.setGridOption('quickFilterText', searchBox.value);
     }, 120);
   });
+  // Ensure standard editing shortcuts work inside the search box
+  searchBox.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && ['a', 'c', 'v', 'x', 'z'].includes(e.key)) {
+      e.stopPropagation();
+    }
+  });
   toolbar.appendChild(searchBox);
 
   const status = document.createElement('span');
@@ -914,6 +925,14 @@ window.addEventListener('message', (event) => {
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeFilterPopup();
+
+  // Cmd/Ctrl+F → focus search box
+  if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+    e.preventDefault();
+    e.stopPropagation();
+    const box = document.querySelector<HTMLInputElement>('.dv-search');
+    if (box) { box.focus(); box.select(); }
+  }
 });
 
 // 优先检查是否有直出的初始数据，消除 IPC 握手往返延迟
