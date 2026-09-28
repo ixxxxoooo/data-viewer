@@ -617,23 +617,55 @@ function buildApp(): void {
   const toolbar = document.createElement('div');
   toolbar.className = 'dv-toolbar';
 
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'dv-search-wrap';
+
   const searchBox = document.createElement('input');
   searchBox.type = 'text';
   searchBox.className = 'dv-search';
   searchBox.placeholder = t('search');
+
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button';
+  clearBtn.className = 'dv-search-clear';
+  clearBtn.setAttribute('aria-label', t('clear'));
+  clearBtn.innerHTML = '<svg viewBox="0 0 12 12" width="10" height="10"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  clearBtn.style.display = 'none';
+
+  const syncClearBtn = () => {
+    clearBtn.style.display = searchBox.value ? 'flex' : 'none';
+  };
+
   searchBox.addEventListener('input', () => {
+    syncClearBtn();
     clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => {
       gridApi?.setGridOption('quickFilterText', searchBox.value);
     }, 120);
   });
-  // Ensure standard editing shortcuts work inside the search box
+  // 确保搜索框内标准编辑快捷键正常工作
   searchBox.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && ['a', 'c', 'v', 'x', 'z'].includes(e.key)) {
       e.stopPropagation();
     }
+    if (e.key === 'Escape' && searchBox.value) {
+      e.stopPropagation();
+      searchBox.value = '';
+      syncClearBtn();
+      gridApi?.setGridOption('quickFilterText', '');
+    }
   });
-  toolbar.appendChild(searchBox);
+
+  clearBtn.addEventListener('click', () => {
+    searchBox.value = '';
+    syncClearBtn();
+    gridApi?.setGridOption('quickFilterText', '');
+    searchBox.focus();
+  });
+
+  searchWrap.appendChild(searchBox);
+  searchWrap.appendChild(clearBtn);
+  toolbar.appendChild(searchWrap);
 
   const status = document.createElement('span');
   status.className = 'dv-status';
@@ -713,12 +745,19 @@ body{margin:0;overflow:hidden;
 .dv-toolbar{display:flex;align-items:center;gap:10px;padding:4px 8px;
   background:var(--vscode-editorWidget-background,#f3f3f3);
   border-bottom:1px solid var(--dv-border-color,#2e2e2e);flex-shrink:0}
-.dv-search{padding:3px 8px;width:220px;
+.dv-search-wrap{position:relative;display:inline-flex;align-items:center;width:220px}
+.dv-search{padding:3px 24px 3px 8px;width:100%;
   border:1px solid var(--vscode-input-border,#cecece);border-radius:3px;
   background:var(--vscode-input-background,#fff);
-  color:var(--vscode-input-foreground,#333);font-size:12px;outline:none}
+  color:var(--vscode-input-foreground,#333);font-size:12px;outline:none;box-sizing:border-box}
 .dv-search:focus{border-color:var(--vscode-focusBorder,#0078d4)}
 .dv-search::placeholder{color:var(--vscode-input-placeholderForeground,#999)}
+.dv-search-clear{position:absolute;right:4px;display:flex;align-items:center;
+  justify-content:center;width:16px;height:16px;padding:0;border:none;
+  background:transparent;cursor:pointer;border-radius:50%;
+  color:var(--vscode-input-placeholderForeground,#999);opacity:.7;line-height:1}
+.dv-search-clear:hover{opacity:1;background:var(--vscode-list-hoverBackground,rgba(0,0,0,.08))}
+.dv-search-clear:focus-visible{outline:1px solid var(--vscode-focusBorder,#0078d4)}
 .dv-status{font-size:11px;margin-left:auto;white-space:nowrap;
   color:var(--vscode-descriptionForeground,#888)}
 
