@@ -23,6 +23,7 @@ interface DataPayload { fileName: string; sheets: SheetData[]; parseTimeMs: numb
 const I18N: Record<string, Record<string, string>> = {
   en: {
     search: 'Search all columns...',
+    searchHint: 'Separate keywords with spaces to match all of them; wrap in "double quotes" for an exact phrase',
     searchFilter: 'Search...',
     selectAll: 'Select All',
     apply: 'Apply',
@@ -39,6 +40,7 @@ const I18N: Record<string, Record<string, string>> = {
   },
   zh: {
     search: '搜索全部列...',
+    searchHint: '多个关键词用空格分隔（需同时命中）；用英文双引号包住可按整句精确匹配',
     searchFilter: '搜索...',
     selectAll: '全选',
     apply: '应用',
@@ -74,6 +76,60 @@ let allSheets: SheetData[] = [];
 let currentSheetIndex = 0;
 let dataPayloadCache: DataPayload | null = null;
 let _suppressEdit = false;
+// 为 true 时 valueSetter 不做类型转换（用于撤销/重做回放）
+let _rawSet = false;
+
+/**
+ * 将单元格编辑得到的字符串转换为存储值，规则与 CSV 解析（convertCsvCell）保持一致：
+ * 仅当转换后“保存出来的文本不变”时才转为 number，
+ * 以保留前导零（如 007）、末尾零（1.50）、科学计数法写法以及超出安全精度的长数字（如身份证号、订单号）。
+ * 例外：原值本来就是数字时（如 Excel 数值列），允许 1.50 这样的写法转为数字 1.5，避免数值列里混入文本。
+ */
+function coerceEditValue(raw: unknown, prev?: unknown): unknown {
+  if (typeof raw !== 'string') return raw;
+  const c = raw.charCodeAt(0);
+  if (!((c >= 48 && c <= 57) || c === 45)) return raw;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return raw;
+  if (String(num) === raw) return num;
+  if (typeof prev === 'number' && /^-?(0|[1-9]\d{0,14})(\.\d{1,15})?$/.test(raw)) return num;
+  return raw;
+}
+
+/**
+ * 数值列的排序比较器：文本形式的数字（如 "1.50"、"10"）也按数值大小排序，空值始终排最后。
+ * 默认比较器对两个字符串使用字典序，会得到 "10" < "9" 的错误结果。
+ */
+function numericComparator(a: unknown, b: unknown): number {
+  const aEmpty = a == null || a === '';
+  const bEmpty = b == null || b === '';
+  if (aEmpty || bEmpty) return aEmpty === bEmpty ? 0 : aEmpty ? 1 : -1;
+  const na = typeof a === 'number' ? a : Number(a);
+  const nb = typeof b === 'number' ? b : Number(b);
+  const aNaN = Number.isNaN(na);
+  const bNaN = Number.isNaN(nb);
+  if (aNaN || bNaN) {
+    if (aNaN && bNaN) return String(a).localeCompare(String(b));
+    return aNaN ? 1 : -1;
+  }
+  return na === nb ? 0 : na < nb ? -1 : 1;
+}
+
+/**
+ * 全局搜索词解析：按空格拆成多个关键词（需同时命中），
+ * 用英文双引号包住的内容视为一个整体短语，如 "New York" beijing。
+ * 传入的文本已被 ag-grid 转为大写。
+ */
+function parseSearchTerms(text: string): string[] {
+  const terms: string[] = [];
+  const re = /"([^"]*)"|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const term = m[1] ?? m[2];
+    if (term) terms.push(term);
+  }
+  return terms;
+}
 
 // ===================== External Filter =====================
 
@@ -92,6 +148,8 @@ function doesExternalFilterPass(node: any): boolean {
 }
 
 // ===================== Filter Popup =====================
+
+const valueCollator = new Intl.Collator('zh-CN', { numeric: true });
 
 let activePopup: { overlay: HTMLDivElement; popup: HTMLDivElement; field: string } | null = null;
 
@@ -115,7 +173,9 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
     valCounts.set(v, (valCounts.get(v) || 0) + 1);
     totalCount++;
   });
-  const sorted = [...valCounts.keys()].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  // numeric: true 让 "2" 排在 "10" 前面，而不是按字符串逐位比较
+  // 复用同一个 Collator：比每次比较都调用 localeCompare 快一个数量级（唯一值多时差别明显）
+  const sorted = [...valCounts.keys()].sort(valueCollator.compare);
   const current = columnFilters.get(field);
   const staged = current ? new Set(current) : new Set(sorted);
 
@@ -201,19 +261,24 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
     }
   }
 
+  // 预先计算小写文本，避免每次按键对全部取值重复 toLowerCase（唯一值很多时开销明显）
+  const sortedLower = sorted.map(v => v.toLowerCase());
+  // 当前列表中可见（匹配搜索词）的全部取值；无搜索词时即全部取值
+  let visibleVals = sorted;
+  // 开始搜索前的勾选状态，清空搜索词后用于还原
+  let stagedBeforeSearch: Set<string> | null = null;
+
   function syncAll() {
-    const vis = [...cbMap.keys()];
-    const allOn = vis.length > 0 && vis.every(v => staged.has(v));
-    const noneOn = vis.every(v => !staged.has(v));
+    const allOn = visibleVals.length > 0 && visibleVals.every(v => staged.has(v));
+    const noneOn = visibleVals.every(v => !staged.has(v));
     allCb.checked = allOn;
     allCb.indeterminate = !allOn && !noneOn;
   }
 
+  // “全选”只作用于当前可见（搜索匹配）的取值，不影响被搜索隐藏的取值
   allCb.addEventListener('change', () => {
-    if (allCb.checked) {
-      for (const v of sorted) staged.add(v);
-    } else {
-      staged.clear();
+    for (const v of visibleVals) {
+      if (allCb.checked) staged.add(v); else staged.delete(v);
     }
     for (const [, cb] of cbMap) cb.checked = allCb.checked;
   });
@@ -223,14 +288,41 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
     allCb.dispatchEvent(new Event('change'));
   });
 
+  // 应用当前勾选：全选等同于没有筛选
+  function applyFilter() {
+    if (staged.size === sorted.length) columnFilters.delete(field);
+    else columnFilters.set(field, new Set(staged));
+    gridApi?.onFilterChanged();
+    closeFilterPopup();
+    updateFilterIcons();
+    updateStatus(allSheets[currentSheetIndex]);
+  }
+
+  // 参考 Excel：输入搜索词后，默认只勾选搜索结果，这样点“应用”/按回车才会真正按搜索结果筛选
   search.addEventListener('input', () => {
-    const q = search.value.toLowerCase();
-    renderList(q ? sorted.filter(v => v.toLowerCase().includes(q)) : sorted);
+    const q = search.value.trim().toLowerCase();
+    if (q) {
+      if (!stagedBeforeSearch) stagedBeforeSearch = new Set(staged);
+      visibleVals = sorted.filter((_, i) => sortedLower[i].includes(q));
+      staged.clear();
+      for (const v of visibleVals) staged.add(v);
+    } else {
+      visibleVals = sorted;
+      if (stagedBeforeSearch) {
+        staged.clear();
+        for (const v of stagedBeforeSearch) staged.add(v);
+        stagedBeforeSearch = null;
+      }
+    }
+    renderList(visibleVals);
     syncAll();
   });
+  protectEditShortcuts(search);
   search.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && ['a', 'c', 'v', 'x', 'z'].includes(e.key)) {
-      e.stopPropagation();
+    // 回车 = 应用筛选（输入法组合输入中的回车只用于确认候选词）
+    if (e.key === 'Enter' && !isComposingEvent(e)) {
+      e.preventDefault();
+      if (staged.size > 0) applyFilter();
     }
   });
 
@@ -238,14 +330,7 @@ function openFilterPopup(field: string, anchor: HTMLElement): void {
 
   const btnRow = document.createElement('div');
   btnRow.className = 'dv-fp-btns';
-  btnRow.appendChild(makeBtn(t('apply'), true, () => {
-    if (staged.size === sorted.length) columnFilters.delete(field);
-    else columnFilters.set(field, new Set(staged));
-    gridApi?.onFilterChanged();
-    closeFilterPopup();
-    updateFilterIcons();
-    updateStatus(allSheets[currentSheetIndex]);
-  }));
+  btnRow.appendChild(makeBtn(t('apply'), true, applyFilter));
   btnRow.appendChild(makeBtn(t('cancel'), false, () => closeFilterPopup()));
   btnRow.appendChild(makeBtn(t('clear'), false, () => {
     columnFilters.delete(field);
@@ -291,14 +376,12 @@ function updateRowHighlight(): void {
 function updateHeaderHighlight(prevColId: string | null, newColId: string | null): void {
   const gridRoot = document.getElementById('dv-grid');
   if (!gridRoot) return;
-  if (prevColId) {
-    const prevHeaders = gridRoot.querySelectorAll(`.ag-header-cell[col-id="${prevColId}"]`);
-    prevHeaders.forEach((el) => el.classList.remove('dv-header-active'));
-  }
-  if (newColId && newColId !== '__dv_row_num') {
-    const newHeaders = gridRoot.querySelectorAll(`.ag-header-cell[col-id="${newColId}"]`);
-    newHeaders.forEach((el) => el.classList.add('dv-header-active'));
-  }
+  // 不把列名拼进选择器：列名含引号、方括号等字符时会导致选择器语法错误
+  gridRoot.querySelectorAll('.ag-header-cell').forEach((el) => {
+    const id = el.getAttribute('col-id');
+    if (prevColId && id === prevColId) el.classList.remove('dv-header-active');
+    if (newColId && newColId !== '__dv_row_num' && id === newColId) el.classList.add('dv-header-active');
+  });
 }
 
 // ===================== Custom Header Component =====================
@@ -308,6 +391,7 @@ class FilterHeader {
   private params!: any;
   private sortEl!: HTMLSpanElement;
   private filterEl!: HTMLSpanElement;
+  private onSortChanged = () => this.refreshSort();
 
   init(params: any): void {
     this.params = params;
@@ -337,7 +421,7 @@ class FilterHeader {
     });
 
     if (params.column) {
-      params.column.addEventListener('sortChanged', () => this.refreshSort());
+      params.column.addEventListener('sortChanged', this.onSortChanged);
     }
     this.refreshSort();
     this.refreshFilter();
@@ -370,7 +454,10 @@ class FilterHeader {
     this.syncActive();
     return true;
   }
-  destroy(): void {}
+  destroy(): void {
+    // 列头会被反复创建/销毁，必须移除监听，避免泄漏并对已销毁的 DOM 反复刷新
+    this.params?.column?.removeEventListener?.('sortChanged', this.onSortChanged);
+  }
 }
 
 function updateFilterIcons(): void {
@@ -386,6 +473,39 @@ function isDark(): boolean {
          (!document.body.classList.contains('vscode-light') && window.matchMedia('(prefers-color-scheme: dark)').matches);
 }
 
+/**
+ * 判断是否为文本输入框内的编辑类快捷键（全选/复制/粘贴/剪切/撤销/重做）。
+ * 同时检查 e.key（转小写，兼容大写锁定与 Shift）和 e.code（兼容非英文键盘布局），
+ * 另外覆盖 Shift+Insert / Ctrl+Insert / Shift+Delete 这类传统快捷键。
+ */
+function isEditShortcut(e: KeyboardEvent): boolean {
+  const key = (e.key || '').toLowerCase();
+  if (e.metaKey || e.ctrlKey) {
+    if (['a', 'c', 'v', 'x', 'z', 'y'].includes(key)) return true;
+    if (['KeyA', 'KeyC', 'KeyV', 'KeyX', 'KeyZ', 'KeyY'].includes(e.code)) return true;
+    if (key === 'insert') return true;
+  }
+  if (e.shiftKey && (key === 'insert' || key === 'delete')) return true;
+  return false;
+}
+
+/** 是否处于输入法组合输入中（此时的回车是用来确认候选词，不应触发搜索） */
+function isComposingEvent(e: KeyboardEvent): boolean {
+  return e.isComposing || e.keyCode === 229;
+}
+
+/**
+ * 让 VS Code 的 webview 不拦截输入框里的编辑快捷键。
+ * VS Code 会在 window 上监听 keydown 并对撤销/重做等按键 preventDefault、转发给宿主，
+ * 这会导致粘贴失败，或者在搜索框里按 Cmd+Z 却撤销了表格单元格的编辑。
+ * 在输入框上阻止这些按键冒泡到 window，浏览器原生的编辑行为就能正常工作。
+ */
+function protectEditShortcuts(input: HTMLInputElement): void {
+  input.addEventListener('keydown', (e) => {
+    if (isEditShortcut(e)) e.stopPropagation();
+  });
+}
+
 function fmtSize(b: number): string {
   if (b < 1024) return `${b} B`;
   if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`;
@@ -398,7 +518,7 @@ function buildTheme(): Theme {
   const d = isDark();
   return themeQuartz.withParams(d ? {
     backgroundColor: '#181818', foregroundColor: '#cccccc',
-    headerBackgroundColor: '#222222', headerForegroundColor: '#f0f0f0',
+    headerBackgroundColor: '#222222', headerTextColor: '#f0f0f0',
     borderColor: '#2e2e2e', rowHoverColor: '#262b32',
     selectedRowBackgroundColor: 'transparent', oddRowBackgroundColor: '#202020',
     headerFontSize: 12, fontSize: 12, spacing: 2.5, wrapperBorderRadius: 0,
@@ -406,7 +526,7 @@ function buildTheme(): Theme {
     headerColumnResizeHandleHeight: '0%', cellHorizontalPaddingScale: 0.6,
   } : {
     backgroundColor: '#ffffff', foregroundColor: '#333333',
-    headerBackgroundColor: '#f2f3f5', headerForegroundColor: '#222222',
+    headerBackgroundColor: '#f2f3f5', headerTextColor: '#222222',
     borderColor: '#dcdfe6', rowHoverColor: '#edf2f7',
     selectedRowBackgroundColor: 'transparent', oddRowBackgroundColor: '#f7f8fa',
     headerFontSize: 12, fontSize: 12, spacing: 2.5, wrapperBorderRadius: 0,
@@ -461,6 +581,8 @@ function loadSheet(index: number): void {
     width: 52, minWidth: 40, maxWidth: 72,
     pinned: 'left', sortable: false, resizable: false, editable: false,
     suppressMovable: true, suppressHeaderMenuButton: true,
+    // 行号列不参与全局搜索，否则搜索 "1" 会按行号误匹配（且行号随筛选结果变化）
+    getQuickFilterText: () => '',
     cellClass: (p) => {
       const isActive = p.node && p.node.rowIndex === activeRowIndex;
       return isActive ? 'dv-row-num-cell dv-row-num-active' : 'dv-row-num-cell';
@@ -496,11 +618,13 @@ function loadSheet(index: number): void {
       cellDataType: false,
       suppressHeaderMenuButton: true,
       cellStyle: isNum ? { textAlign: 'right' } : undefined,
+      comparator: isNum ? numericComparator : undefined,
       valueSetter: (params: any) => {
-        const raw = params.newValue;
-        if (raw === params.oldValue) return false;
-        const num = Number(raw);
-        params.data[params.colDef.field!] = (raw !== '' && raw != null && !isNaN(num)) ? num : raw;
+        // 撤销/重做回放时直接使用原始值，避免再次类型转换导致与文档数据不一致
+        const prev = params.oldValue;
+        const next = _rawSet ? params.newValue : coerceEditValue(params.newValue, prev);
+        if (next === prev || (next === '' && prev == null)) return false;
+        params.data[params.colDef.field!] = next;
         return true;
       },
     };
@@ -527,13 +651,17 @@ function loadSheet(index: number): void {
     animateRows: false,
     rowBuffer: 30,
     suppressColumnVirtualisation: false,
+    // 列名可能包含 "."（如 "price.usd"），禁止 AG Grid 把它当作嵌套属性路径解析
+    suppressFieldDotNotation: true,
+    quickFilterParser: parseSearchTerms,
     enableCellTextSelection: true,
     ensureDomOrder: true,
     stopEditingWhenCellsLoseFocus: true,
     singleClickEdit: false,
     onCellFocused: (e) => {
       const newRow = e.rowIndex;
-      const newCol = e.column ? e.column.getColId() : null;
+      // e.column 可能是 Column 对象或列 ID 字符串
+      const newCol = e.column ? (typeof e.column === 'string' ? e.column : e.column.getColId()) : null;
       if (newRow === activeRowIndex && newCol === activeColId) return;
       const prevCol = activeColId;
       activeRowIndex = newRow;
@@ -550,12 +678,14 @@ function loadSheet(index: number): void {
           rowIndex: e.data.__dvIdx as number,
           field: e.colDef.field,
           oldValue: e.oldValue,
-          newValue: e.newValue,
+          // 使用实际写入表格的值（已做类型转换），保证与宿主端文档数据一致
+          newValue: e.data[e.colDef.field],
         },
       });
     },
-    onFilterChanged: () => updateStatus(sheet),
-    onRowDataUpdated: () => updateStatus(sheet),
+    // 切换 Sheet 后不能再引用首次加载时的 sheet，必须取当前 Sheet
+    onFilterChanged: () => updateStatus(allSheets[currentSheetIndex]),
+    onRowDataUpdated: () => updateStatus(allSheets[currentSheetIndex]),
   };
 
   gridApi = createGrid(container, opts);
@@ -624,6 +754,7 @@ function buildApp(): void {
   searchBox.type = 'text';
   searchBox.className = 'dv-search';
   searchBox.placeholder = t('search');
+  searchBox.title = t('searchHint');
 
   const clearBtn = document.createElement('button');
   clearBtn.type = 'button';
@@ -636,30 +767,39 @@ function buildApp(): void {
     clearBtn.style.display = searchBox.value ? 'flex' : 'none';
   };
 
+  // 立即应用搜索词（取消尚未触发的防抖定时器）
+  const applySearch = () => {
+    clearTimeout(searchTimer);
+    gridApi?.setGridOption('quickFilterText', searchBox.value);
+  };
+
   searchBox.addEventListener('input', () => {
     syncClearBtn();
     clearTimeout(searchTimer);
-    searchTimer = window.setTimeout(() => {
-      gridApi?.setGridOption('quickFilterText', searchBox.value);
-    }, 120);
+    // 行数越多，每次搜索越耗时，相应拉长防抖间隔，避免连续输入时卡顿；回车仍然立即搜索
+    const rowCount = allSheets[currentSheetIndex]?.rows.length ?? 0;
+    searchTimer = window.setTimeout(applySearch, rowCount > 100000 ? 400 : rowCount > 20000 ? 250 : 120);
   });
-  // 确保搜索框内标准编辑快捷键正常工作
+  // 确保搜索框内标准编辑快捷键（粘贴、撤销等）正常工作
+  protectEditShortcuts(searchBox);
   searchBox.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && ['a', 'c', 'v', 'x', 'z'].includes(e.key)) {
-      e.stopPropagation();
+    // 回车立即搜索（输入法组合输入中的回车只用于确认候选词）
+    if (e.key === 'Enter' && !isComposingEvent(e)) {
+      e.preventDefault();
+      applySearch();
     }
     if (e.key === 'Escape' && searchBox.value) {
       e.stopPropagation();
       searchBox.value = '';
       syncClearBtn();
-      gridApi?.setGridOption('quickFilterText', '');
+      applySearch();
     }
   });
 
   clearBtn.addEventListener('click', () => {
     searchBox.value = '';
     syncClearBtn();
-    gridApi?.setGridOption('quickFilterText', '');
+    applySearch();
     searchBox.focus();
   });
 
@@ -916,6 +1056,7 @@ function handleData(payload: DataPayload): void {
   dataPayloadCache = payload;
   allSheets = payload.sheets;
   currentSheetIndex = 0;
+  closeFilterPopup();
   buildApp();
   renderSheetTabs();
   loadSheet(0);
@@ -923,9 +1064,19 @@ function handleData(payload: DataPayload): void {
 
 function handleError(payload: { message: string }): void {
   const app = document.getElementById('app')!;
-  app.innerHTML = `<div style="padding:24px;color:var(--vscode-errorForeground,#d32f2f);">
-    <h3 style="margin-bottom:8px;">${t('parseFailed')}</h3>
-    <p style="font-size:13px;">${payload.message}</p></div>`;
+  app.innerHTML = '';
+  const box = document.createElement('div');
+  box.style.cssText = 'padding:24px;color:var(--vscode-errorForeground,#d32f2f);';
+  const title = document.createElement('h3');
+  title.style.marginBottom = '8px';
+  title.textContent = t('parseFailed');
+  // 使用 textContent 避免错误信息（可能含文件内容）被当作 HTML 解析
+  const msg = document.createElement('p');
+  msg.style.fontSize = '13px';
+  msg.textContent = payload.message;
+  box.appendChild(title);
+  box.appendChild(msg);
+  app.appendChild(box);
 }
 
 function handleCellUpdate(payload: { sheetIndex: number; rowIndex: number; field: string; value: unknown }): void {
@@ -933,8 +1084,13 @@ function handleCellUpdate(payload: { sheetIndex: number; rowIndex: number; field
   const node = gridApi.getRowNode(String(payload.rowIndex));
   if (node) {
     _suppressEdit = true;
-    node.setDataValue(payload.field, payload.value);
-    _suppressEdit = false;
+    _rawSet = true;
+    try {
+      node.setDataValue(payload.field, payload.value);
+    } finally {
+      _suppressEdit = false;
+      _rawSet = false;
+    }
   }
 }
 
@@ -966,7 +1122,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeFilterPopup();
 
   // Cmd/Ctrl+F → focus search box
-  if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+  if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'f' || e.code === 'KeyF')) {
     e.preventDefault();
     e.stopPropagation();
     const box = document.querySelector<HTMLInputElement>('.dv-search');
